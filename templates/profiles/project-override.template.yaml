@@ -1,0 +1,31 @@
+# .claude/project/friction.yaml — 项目专有摩擦模式（Layer 3）
+#
+# 这个文件只包含本项目独有的模式。
+# 通用模式（L1）和语言模式（L2）已在 .reward-loop/friction-patterns.yaml 中。
+# 本文件的内容会追加到合并结果中。
+#
+# 升级框架时此文件不会被覆盖。
+
+# 项目专有模式
+project_patterns: []
+  # 示例：
+  # - id: my-project-specific-error
+  #   class: code
+  #   match_any:
+  #     - "MyProjectSpecificError"
+  #   diagnosis: "项目特有的错误描述"
+  #   fix_steps:
+  #     - "修复步骤"
+
+# 覆盖上层模式（修改通用/Profile 模式的 fix_steps）
+overrides: []
+  # 示例：覆盖通用模式的修复步骤
+  # - override_id: api-signature-mismatch
+  #   fix_steps:
+  #     - "本项目使用自定义 RPC，搜索 .proto 文件而非源码"
+
+# 禁用不适用的上层模式
+disabled: []
+  # 示例：本项目不用标准 protobuf，禁用 proto 相关模式
+  # - "proto-direction-mismatch"
+  # - "codegen-overwrite-handwritten"

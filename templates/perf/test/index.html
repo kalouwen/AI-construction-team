@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head><title>Perf Test</title></head>
+<body>
+<canvas id="c" width="400" height="400"></canvas>
+<script>
+// 简单动画循环：画随机方块，产生可测量的 FPS 和内存分配
+const ctx = document.getElementById('c').getContext('2d');
+let frame = 0;
+function loop() {
+  ctx.clearRect(0, 0, 400, 400);
+  for (let i = 0; i < 50; i++) {
+    ctx.fillStyle = `hsl(${Math.random()*360},70%,50%)`;
+    ctx.fillRect(Math.random()*380, Math.random()*380, 20, 20);
+  }
+  frame++;
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
+</script>
+</body>
+</html>

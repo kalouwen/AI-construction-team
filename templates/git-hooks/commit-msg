@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# commit-msg: validate commit message format via commitlint
+# Installed by AI for better — do not edit manually
+#
+# Format enforced: type(scope): description
+# Types: feat | fix | refactor | test | docs | chore | ci | build | perf | revert
+
+npx --no -- commitlint --edit "$1"

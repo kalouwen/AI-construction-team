@@ -1,0 +1,60 @@
+# Go Profile — 摩擦模式默认值
+# Layer 2: Go 语言特定模式
+
+profile_patterns:
+
+  - id: go-module-path-wrong
+    class: config
+    match_any:
+      - "main module.*does not contain package"
+      - "cannot find module providing package"
+      - "no required module provides package"
+    diagnosis: "Go module 路径错误——可能在错误的目录执行了 go 命令"
+    fix_steps:
+      - "检查 go.mod 文件位置：go 命令必须从包含 go.mod 的目录执行"
+      - "检查 module 声明名称是否和 import 路径匹配"
+      - "检查是否有多个 go.mod（mono-repo 中常见）"
+
+  - id: go-unused-import
+    class: code
+    match_any:
+      - "imported and not used"
+    diagnosis: "Go 不允许未使用的 import"
+    fix_steps:
+      - "删除未使用的 import"
+      - "或者使用 _ 别名（仅副作用 import 时）"
+
+  - id: go-type-assertion-panic
+    class: code
+    match_any:
+      - "interface conversion.*is nil"
+      - "interface conversion.*is.*not"
+    diagnosis: "Go 类型断言失败"
+    fix_steps:
+      - "改用 comma-ok 模式: val, ok := x.(Type)"
+      - "添加 nil 检查"
+
+  - id: go-race-condition
+    class: code
+    match_any:
+      - "DATA RACE"
+      - "concurrent map"
+    diagnosis: "Go 并发数据竞争"
+    fix_steps:
+      - "用 sync.Mutex 或 sync.RWMutex 保护共享数据"
+      - "或改用 channel"
+      - "运行 go test -race 验证修复"
+
+# Go 验证方式默认值
+profile_verify:
+  compile:
+    method: shell
+    shell_cmd: "go build ./..."
+  test:
+    method: shell
+    shell_cmd: "go test ./..."
+
+# Go 特有保护路径
+profile_protected:
+  - "vendor/"
+  - "go.sum"

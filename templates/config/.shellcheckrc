@@ -1,0 +1,9 @@
+# ShellCheck configuration
+# Applies to all shell scripts in this project
+
+# Shell dialect (bash/sh/dash/ksh)
+shell=bash
+
+# Disable noisy warnings that are intentional in this codebase:
+# SC1091 — don't warn about sourced files that shellcheck can't find
+disable=SC1091

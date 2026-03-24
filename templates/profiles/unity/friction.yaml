@@ -1,0 +1,76 @@
+# Unity Profile — 摩擦模式默认值
+# Layer 2: 语言特定模式，合并到 Layer 1 通用模式之上
+# 部署时自动合并，项目可在 Layer 3 覆盖
+
+profile_patterns:
+
+  # Unity C# 编译错误常见模式
+  - id: unity-missing-reference
+    class: code
+    match_any:
+      - "CS0246.*type or namespace.*could not be found"
+      - "CS0234.*does not exist in namespace"
+      - "error CS0103.*does not exist in the current context"
+    diagnosis: "Unity C# 缺少引用——可能是 asmdef 缺少依赖或 using 语句遗漏"
+    fix_steps:
+      - "检查 .asmdef 的 references 列表是否包含目标程序集"
+      - "检查 using 语句"
+      - "如果是第三方插件的命名空间 → class=environment（包未安装）"
+    requires_check: true
+
+  - id: unity-serialization-error
+    class: code
+    match_any:
+      - "SerializationException"
+      - "is not marked as Serializable"
+      - "Cannot serialize.*field"
+    diagnosis: "Unity 序列化字段未标记 [Serializable] 或类型不支持序列化"
+    fix_steps:
+      - "给类加 [System.Serializable] 特性"
+      - "检查字段类型是否为 Unity 支持的可序列化类型"
+
+  - id: unity-mcp-disconnected
+    class: environment
+    match_any:
+      - "MCP.*disconnect"
+      - "MCP.*timeout"
+      - "connection.*refused.*MCP"
+      - "coplay.*not responding"
+    diagnosis: "MCP 连接丢失——Unity Editor 可能未启动或 coplay-mcp 未运行"
+    fix_steps:
+      - "这不是代码问题，是环境问题"
+      - "检查 Unity Editor 是否打开"
+      - "检查 coplay-mcp server 是否运行"
+      - "标记依赖 MCP 的功能为 BLOCKED"
+    escalate: true
+
+  - id: unity-asmdef-circular
+    class: code
+    match_any:
+      - "Assembly.*circular.*dependency"
+      - "asmdef.*cycle"
+    diagnosis: "程序集定义存在循环引用"
+    fix_steps:
+      - "检查 .asmdef 文件的 references"
+      - "提取共享接口到独立程序集"
+    cycle_indicator_for: ["unity-missing-reference"]
+
+# Unity 特有的保护路径（追加到通用 protected-paths）
+profile_protected:
+  - "Library/"
+  - "Packages/"
+  - "ProjectSettings/"
+  - "UserSettings/"
+  - "Assets/Plugins/"
+  - "Assets/Scripts/3rd/"
+
+# Unity 验证方式默认值
+profile_verify:
+  compile:
+    method: mcp
+    mcp_tool: "mcp__coplay-mcp__check_compile_errors"
+    on_mcp_fail: block
+  test:
+    method: mcp
+    mcp_tool: null    # 需要配置 Unity Test Runner
+    on_mcp_fail: skip_with_warning

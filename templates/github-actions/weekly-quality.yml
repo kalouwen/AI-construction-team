@@ -1,0 +1,155 @@
+# Quality Ratchet — 代码质量棘轮
+#
+# 原则：质量指标只能降，不能升。升了就阻断 PR。
+#
+# 触发：
+#   - PR → 读取基准线对比，数字升了则 exit 1 阻断合并
+#   - push to main → 扫描后更新基准线（只会往低走）
+#   - 每周一 / 手动 → 同 push to main
+#
+# 基准线文件：.quality-baseline.json（存在仓库根目录，只有 CI 可更新）
+# Installed by AI for better
+
+name: Quality Ratchet
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  schedule:
+    - cron: '0 9 * * 1'  # 每周一 UTC 09:00
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 允许 CI 更新基准线文件并 push
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29  # v4.1.6
+        with:
+          fetch-depth: 0
+
+      # ── 1. 扫描当前指标 ──────────────────────────────────────────────
+      - name: Scan quality metrics
+        id: scan
+        run: |
+          TODO=$(grep -rn "TODO" \
+            --include="*.cs" --include="*.ts" --include="*.tsx" \
+            --include="*.py" --include="*.go" --include="*.js" --include="*.jsx" \
+            --exclude-dir=".git" --exclude-dir="node_modules" --exclude-dir="Library" \
+            . 2>/dev/null | wc -l || echo 0)
+          FIXME=$(grep -rn "FIXME" \
+            --include="*.cs" --include="*.ts" --include="*.tsx" \
+            --include="*.py" --include="*.go" --include="*.js" --include="*.jsx" \
+            --exclude-dir=".git" --exclude-dir="node_modules" --exclude-dir="Library" \
+            . 2>/dev/null | wc -l || echo 0)
+          HACK=$(grep -rn "HACK" \
+            --include="*.cs" --include="*.ts" --include="*.tsx" \
+            --include="*.py" --include="*.go" --include="*.js" --include="*.jsx" \
+            --exclude-dir=".git" --exclude-dir="node_modules" --exclude-dir="Library" \
+            . 2>/dev/null | wc -l || echo 0)
+          LARGE=$(find . -type f -size +1M \
+            -not -path "./.git/*" \
+            -not -path "*/node_modules/*" \
+            -not -path "*/Library/*" \
+            | wc -l || echo 0)
+
+          echo "todo=$TODO"         >> "$GITHUB_OUTPUT"
+          echo "fixme=$FIXME"       >> "$GITHUB_OUTPUT"
+          echo "hack=$HACK"         >> "$GITHUB_OUTPUT"
+          echo "large_files=$LARGE" >> "$GITHUB_OUTPUT"
+
+          echo "### 当前扫描结果"
+          echo "TODO: $TODO | FIXME: $FIXME | HACK: $HACK | 大文件: $LARGE"
+
+      # ── 2. 棘轮检查（仅 PR）───────────────────────────────────────────
+      - name: Ratchet check
+        if: github.event_name == 'pull_request'
+        env:
+          TODO:        ${{ steps.scan.outputs.todo }}
+          FIXME:       ${{ steps.scan.outputs.fixme }}
+          HACK:        ${{ steps.scan.outputs.hack }}
+          LARGE:       ${{ steps.scan.outputs.large_files }}
+        run: |
+          if [ ! -f ".quality-baseline.json" ]; then
+            echo "⚠️  未找到基准线文件，跳过检查。"
+            echo "请先在 main 分支上手动触发一次 workflow 来初始化基准线。"
+            exit 0
+          fi
+
+          BASE_TODO=$(jq '.todo'        .quality-baseline.json)
+          BASE_FIXME=$(jq '.fixme'      .quality-baseline.json)
+          BASE_HACK=$(jq '.hack'        .quality-baseline.json)
+          BASE_LARGE=$(jq '.large_files' .quality-baseline.json)
+
+          FAILED=false
+
+          if [ "$TODO" -gt "$BASE_TODO" ]; then
+            echo "❌ TODO 增加了：$BASE_TODO → $TODO (+$((TODO - BASE_TODO)))"
+            FAILED=true
+          fi
+          if [ "$FIXME" -gt "$BASE_FIXME" ]; then
+            echo "❌ FIXME 增加了：$BASE_FIXME → $FIXME (+$((FIXME - BASE_FIXME)))"
+            FAILED=true
+          fi
+          if [ "$HACK" -gt "$BASE_HACK" ]; then
+            echo "❌ HACK 增加了：$BASE_HACK → $HACK (+$((HACK - BASE_HACK)))"
+            FAILED=true
+          fi
+          if [ "$LARGE" -gt "$BASE_LARGE" ]; then
+            echo "❌ 大文件增加了：$BASE_LARGE → $LARGE (+$((LARGE - BASE_LARGE)))"
+            FAILED=true
+          fi
+
+          if [ "$FAILED" = "true" ]; then
+            echo ""
+            echo "质量棘轮阻断了这个 PR。请修复上述问题后再合并。"
+            exit 1
+          fi
+
+          echo "✅ 质量棘轮通过。"
+          echo "TODO: $BASE_TODO→$TODO | FIXME: $BASE_FIXME→$FIXME | HACK: $BASE_HACK→$HACK | 大文件: $BASE_LARGE→$LARGE"
+
+      # ── 3. 更新基准线（合并到 main / 定时 / 手动，不在 PR 上运行）──────
+      - name: Update baseline
+        if: github.event_name != 'pull_request'
+        env:
+          TODO:        ${{ steps.scan.outputs.todo }}
+          FIXME:       ${{ steps.scan.outputs.fixme }}
+          HACK:        ${{ steps.scan.outputs.hack }}
+          LARGE:       ${{ steps.scan.outputs.large_files }}
+        run: |
+          jq -n \
+            --argjson todo        "$TODO"  \
+            --argjson fixme       "$FIXME" \
+            --argjson hack        "$HACK"  \
+            --argjson large_files "$LARGE" \
+            --arg     updated_at  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{todo: $todo, fixme: $fixme, hack: $hack,
+              large_files: $large_files,
+              updated_at: $updated_at,
+              updated_by: "ci/quality-ratchet"}' \
+            > .quality-baseline.json
+
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add .quality-baseline.json
+
+          if git diff --cached --quiet; then
+            echo "基准线无变化，无需提交。"
+          else
+            git commit -m "chore: update quality baseline [skip ci]"
+            git push
+          fi
+
+      # ── 4. 上传快照（总是执行）───────────────────────────────────────
+      - name: Upload snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-snapshot-${{ github.run_id }}
+          path: .quality-baseline.json
+          if-no-files-found: ignore

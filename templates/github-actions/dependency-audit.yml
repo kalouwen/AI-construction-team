@@ -1,0 +1,42 @@
+# 双周依赖安全审计
+# 触发：每两周一次（第1和第15天）UTC 09:00
+#
+# V1 简化版：npm audit + pip audit
+# 迭代方向：
+#   V2: 支持 Go、Rust、.NET 依赖审计
+#   V3: 自动创建 Issue 跟踪高危漏洞
+
+name: Dependency Audit
+
+on:
+  schedule:
+    - cron: '0 9 1,15 * *'  # 每月1号和15号
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node.js audit
+        if: hashFiles('package-lock.json') != ''
+        continue-on-error: true
+        run: |
+          echo "## npm audit" > audit-report.md
+          npm audit --json 2>/dev/null | jq -r '.vulnerabilities | to_entries[] | "- \(.key): \(.value.severity)"' >> audit-report.md 2>/dev/null || echo "- No issues found" >> audit-report.md
+
+      - name: Python audit
+        if: hashFiles('requirements.txt') != ''
+        continue-on-error: true
+        run: |
+          pip install pip-audit 2>/dev/null
+          echo "" >> audit-report.md
+          echo "## pip audit" >> audit-report.md
+          pip-audit -r requirements.txt 2>/dev/null >> audit-report.md || echo "- No issues found" >> audit-report.md
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-report
+          path: audit-report.md

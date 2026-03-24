@@ -1,0 +1,87 @@
+# =============================================================================
+# 测试奖励信号系统配置
+# 每个接入项目复制此文件，按需修改
+# =============================================================================
+
+version: "1.0"
+
+# ---------------------------------------------------------------------------
+# 指标定义（阈值判定，与 perf 系统兼容）
+# ---------------------------------------------------------------------------
+metrics:
+  pass_rate:
+    unit: "%"
+    lower_is_better: false
+    tier: hard
+    threshold_relative: 2       # pass_rate 下降超过 2% → FAIL
+    threshold_absolute: 5
+
+  test_failed:
+    unit: count
+    lower_is_better: true
+    tier: info                  # 仅记录，棘轮机制已覆盖回归检测
+
+  test_duration_sec:
+    unit: seconds
+    lower_is_better: true
+    tier: soft
+    threshold_relative: 20      # 测试变慢 20% 以上 → 警告
+    threshold_absolute: 50
+
+  coverage_pct:
+    unit: "%"
+    lower_is_better: false
+    tier: soft
+    threshold_relative: 3       # 覆盖率下降超过 3% → 警告
+    threshold_absolute: 10
+
+# ---------------------------------------------------------------------------
+# 棘轮配置（测试信号核心）
+# ---------------------------------------------------------------------------
+ratchet:
+  enabled: true
+  # 之前通过的测试现在挂了 → 判定为 FAIL（无论数量）
+  # 这是硬约束，不受 metrics 的 threshold 影响
+  allow_known_failures: true    # known_failures 列表中的测试不触发棘轮
+
+# ---------------------------------------------------------------------------
+# 采集配置
+# ---------------------------------------------------------------------------
+collector:
+  timeout_sec: 300
+  jest:
+    cmd: "npx jest --json --outputFile {output}"
+    coverage_cmd: "npx jest --coverage --json --outputFile {output}"
+  pytest:
+    cmd: "python -m pytest --tb=short -q --json-report --json-report-file={output}"
+    coverage_cmd: "python -m pytest --cov --cov-report=json --json-report --json-report-file={output}"
+  unity:
+    editor_path: ""
+    project_path: "."
+    test_mode: "EditMode"       # EditMode / PlayMode / Both
+
+# ---------------------------------------------------------------------------
+# 循环控制（与 perf 共享 loop.py 时使用）
+# ---------------------------------------------------------------------------
+loop:
+  max_rounds: 20
+  max_duration_min: 240
+  stop_after_no_improve: 5
+  convergence_threshold: 1.0
+  strategy_switch_after: 3
+
+# ---------------------------------------------------------------------------
+# 历史管理
+# ---------------------------------------------------------------------------
+history:
+  max_recent_rounds: 10
+  older_rounds: summary_only
+
+# ---------------------------------------------------------------------------
+# 输出路径
+# ---------------------------------------------------------------------------
+paths:
+  results_dir: ".test-signal/results"
+  baseline_file: ".test-signal/baseline.json"
+  history_file: ".test-signal/history.json"
+  trajectory_file: ".test-signal/trajectory.jsonl"

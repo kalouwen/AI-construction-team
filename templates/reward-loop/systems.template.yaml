@@ -1,0 +1,142 @@
+# systems.template.yaml — 并行 Agent 系统边界定义
+#
+# 定义项目中可以并行开发的独立系统、它们的边界、测试范围和依赖关系。
+# parallel-driver.py 和 /parallel-build 技能都读此文件。
+#
+# 部署时根据项目实际情况填写。示例以 GTA 多系统项目为基础。
+
+version: 1
+
+# ═══════════════════════════════════════════════════════════════
+# 系统定义
+# 每个系统 = 一个独立的开发单元 = 一个 Agent 的工作范围
+# ═══════════════════════════════════════════════════════════════
+systems:
+
+  # 示例：载具系统
+  - name: vehicle
+    description: "Vehicle systems: insurance, modification, spawning, physics"
+    branch: "feat/vehicle"
+    # Agent 只能修改这些目录下的文件
+    source_boundaries:
+      - "server/vehicle/"
+      - "client/Assets/Scripts/Vehicle/"
+      - "proto/vehicle.proto"
+    # 该系统的单元测试（Agent 每次改动后必须跑通）
+    test_cmd: "go test ./vehicle/..."
+    # 该系统依赖的共享文件（Agent 可读不可写）
+    shared_dependencies:
+      - "proto/common.proto"
+      - "server/common/player_state.go"
+    # 该系统依赖的其他系统（影响合并顺序）
+    depends_on: []
+    # Agent 超时（分钟）
+    timeout_min: 30
+
+  # 示例：服装系统
+  - name: clothing
+    description: "Clothing: preview camera, gender filtering, sync"
+    branch: "feat/clothing"
+    source_boundaries:
+      - "server/clothing/"
+      - "client/Assets/Scripts/Clothing/"
+      - "proto/clothing.proto"
+    test_cmd: "go test ./clothing/..."
+    shared_dependencies:
+      - "proto/common.proto"
+      - "server/common/player_state.go"
+    depends_on: []
+    timeout_min: 30
+
+  # 示例：差事系统
+  - name: errand
+    description: "Errand system: objectives, race, survive types"
+    branch: "feat/errand"
+    source_boundaries:
+      - "server/errand/"
+      - "client/Assets/Scripts/Errand/"
+      - "proto/errand.proto"
+    test_cmd: "go test ./errand/..."
+    shared_dependencies:
+      - "proto/common.proto"
+    depends_on: []
+    timeout_min: 30
+
+  # 示例：任务系统（依赖差事系统的接口）
+  - name: mission
+    description: "Mission scripting: quest chains, triggers, rewards"
+    branch: "feat/mission"
+    source_boundaries:
+      - "server/mission/"
+      - "client/Assets/Scripts/Mission/"
+    test_cmd: "go test ./mission/..."
+    shared_dependencies:
+      - "server/errand/errand_api.go"
+    depends_on: ["errand"]    # 合并时 errand 必须先于 mission
+    timeout_min: 30
+
+# ═══════════════════════════════════════════════════════════════
+# 协调规则
+# ═══════════════════════════════════════════════════════════════
+coordination:
+
+  # 【P3 修复】共享区：任何单个 Agent 都不能修改这些路径
+  # 只有协调者在合并后可以修改（例如重新 codegen）
+  shared_zone:
+    - "proto/common.proto"
+    - "server/common/"
+    - "client/Assets/Scripts/Common/"
+
+  # 【P1 修复】合并顺序
+  # "auto" = 从 depends_on 拓扑排序（无依赖的按完成时间排）
+  # 或手动指定: ["errand", "mission", "vehicle", "clothing"]
+  merge_order: "auto"
+
+  # 【P2/P9 修复】每次合并后跑什么测试
+  # 必须是全量测试，不能只跑该系统的测试——防止语义冲突
+  integration_test: "go test ./..."
+
+  # 【P3/P4 修复】合并后需要重新生成的命令（proto codegen 等）
+  # 协调者在 git merge 成功后、跑集成测试前执行
+  post_merge_commands:
+    - "protoc --go_out=. --csharp_out=. proto/*.proto"
+
+  # 【P5 修复】部分失败策略
+  #   merge_successes = 合并成功的，跳过失败的（推荐）
+  #   abort_all       = 任一失败则全部丢弃
+  partial_failure: "merge_successes"
+
+  # 【P6 修复】失败 Agent 的重试策略
+  #   rebase_retry = 从合并后的新 base 创建新分支重试
+  #   abandon      = 放弃，留给人类
+  retry_strategy: "rebase_retry"
+  max_retries: 1    # 每个失败的系统最多重试几次
+
+  # 【P7 修复】全局超时：所有 Agent 的最大等待时间
+  # 超时后不再等 straggler，先合并已完成的
+  global_timeout_min: 45
+
+  # 【P10 修复】最大并发 Agent 数（防资源争抢）
+  max_concurrent: 4
+
+  # 【P11 修复】隔离方式
+  #   worktree = git worktree（轻量，Linux/Mac 推荐）
+  #   clone    = 完整 git clone（Windows 推荐，避免锁竞争）
+  isolation_method: "clone"    # Windows 默认 clone
+
+# ═══════════════════════════════════════════════════════════════
+# 预检规则
+# 启动并行 Agent 前执行的验证
+# ═══════════════════════════════════════════════════════════════
+preflight:
+
+  # 【P12 修复】跨系统调用检查
+  # 启动前 grep 检查：系统 A 的代码是否调用了系统 B 的函数
+  # 如果有未声明的跨系统依赖 → 警告或阻止并行
+  check_cross_system_calls: true
+
+  # 基线编译检查：启动前 base 必须编译通过
+  check_baseline_compiles: true
+
+  # 分支冲突预检：检查目标分支是否已存在
+  check_branch_exists: true

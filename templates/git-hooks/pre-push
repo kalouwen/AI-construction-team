@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# pre-push: auto-rebase on main branch + rerun tests before push
+# Installed by AI for better — do not edit manually
+
+set -e
+
+MAIN_BRANCH="__MAIN_BRANCH__"
+
+branch=$(git rev-parse --abbrev-ref HEAD)
+[ "$branch" = "$MAIN_BRANCH" ] && exit 0
+
+echo "→ Fetching origin/$MAIN_BRANCH..."
+git fetch origin "$MAIN_BRANCH" --quiet
+
+echo "→ Rebasing on origin/$MAIN_BRANCH..."
+if ! git rebase "origin/$MAIN_BRANCH" --quiet; then
+  echo ""
+  echo "❌  Rebase failed. Push blocked."
+  echo "    Resolve conflicts, then: git rebase --continue"
+  git rebase --abort
+  exit 1
+fi
+
+# Push 前跑 e2e（完整验证）。有 e2e 用 e2e，否则降级到全量
+TEST_E2E="__TEST_E2E_CMD__"
+TEST_FULL="__TEST_CMD__"
+
+if [ -n "$TEST_E2E" ] && [[ "$TEST_E2E" != "#"* ]]; then
+  echo "→ Running e2e tests on rebased branch..."
+  if ! eval "$TEST_E2E"; then
+    echo ""
+    echo "❌  E2E tests failed after rebase. Push blocked."
+    exit 1
+  fi
+elif [ -n "$TEST_FULL" ] && [[ "$TEST_FULL" != "#"* ]]; then
+  echo "→ Running tests on rebased branch..."
+  if ! eval "$TEST_FULL"; then
+    echo ""
+    echo "❌  Tests failed after rebase. Push blocked."
+    exit 1
+  fi
+else
+  echo "⚠️  No test command configured. Skipping test gate."
+fi

@@ -1,0 +1,133 @@
+# =============================================================================
+# 统一奖励信号配置
+#
+# 定义项目使用的所有奖励信号。循环中每轮 AI 改完代码后，
+# 所有信号依次运行，全部 PASS 才合并，任一 FAIL 就回滚。
+# =============================================================================
+
+version: "1.0"
+
+# ---------------------------------------------------------------------------
+# 信号列表（按顺序执行，快的放前面以便早期失败）
+# ---------------------------------------------------------------------------
+# 信号按 fail-fast 排序：最快最便宜的先跑，有一个 FAIL 就不跑后面的
+signals:
+  # 1. 安全（秒级，零容忍）— 等价于 GitHub CI 的 gitleaks
+  - name: security
+    enabled: true
+    judge: "../security/judge.py"
+    collector: "../security/collector.sh"
+    config: "../security/security.yaml"
+    baseline: ".signals/security/baseline.json"   # security judge 不使用 baseline
+    results_dir: ".signals/security/results"
+    mode: "single"
+
+  # 2. 质量棘轮（秒级，只降不升）— 等价于 GitHub CI 的 quality ratchet
+  - name: quality
+    enabled: true
+    judge: "../quality/judge.py"
+    collector: "../quality/collector.sh"
+    config: "../quality/quality.yaml"
+    baseline: ".signals/quality/baseline.json"
+    results_dir: ".signals/quality/results"
+    mode: "single"
+
+  # 3. 测试（秒-分钟级，确定性）
+  - name: test
+    enabled: true
+    judge: "../test/test_judge.py"
+    collector: "../test/collectors/jest/collector.sh"
+    config: "../test/test.yaml"
+    baseline: ".signals/test/baseline.json"
+    results_dir: ".signals/test/results"
+    mode: "single"
+
+  # 4. 性能（分钟级，非确定性 → 跑多次取中位数）
+  - name: perf
+    enabled: true
+    judge: "../perf/judge.py"
+    collector: "../perf/collectors/web/collector.sh"
+    config: "../perf/perf.yaml"
+    baseline: ".signals/perf/baseline.json"
+    results_dir: ".signals/perf/results"
+    mode: "median"
+
+# ---------------------------------------------------------------------------
+# 循环控制
+# ---------------------------------------------------------------------------
+loop:
+  max_rounds: 20
+  max_duration_min: 240
+  stop_after_no_improve: 5
+  strategy_switch_after: 3
+
+# ---------------------------------------------------------------------------
+# 历史（统一管理，不按信号拆分）
+# ---------------------------------------------------------------------------
+history:
+  history_file: ".signals/history.json"
+  trajectory_file: ".signals/trajectory.jsonl"
+  max_recent_rounds: 10
+
+# ---------------------------------------------------------------------------
+# 合并策略
+# ---------------------------------------------------------------------------
+merge:
+  # all = 所有信号都 PASS 才合并
+  # any = 任一信号 PASS 就合并（不推荐）
+  strategy: "all"
+
+  # 更新哪些信号的 baseline（只更新 PASS 的信号）
+  update_baseline_on_pass: true
+
+# ---------------------------------------------------------------------------
+# 护栏（AI 执行后、判定前检查）
+# ---------------------------------------------------------------------------
+guardrail:
+  frozen:
+    - ".reward-loop/"
+    - ".signals/"
+    - ".quality-baseline.json"
+    - "baseline.json"
+    - "signals.yaml"
+    - "*.test.*"
+    - "*.spec.*"
+    - "**/test/**"
+    - "**/tests/**"
+    - ".security/"
+    - ".quality/"
+  limits:
+    max_files_changed: 3      # 超过则阻断（认知原子化：一轮最多3个文件）
+    max_insertions: 100       # 超过则阻断
+    max_deletions: 80         # 超过则阻断
+    warn_files: 2             # 超过则警告（不阻断）
+    warn_insertions: 60       # 超过则警告
+  # 任务类型分层：不同类型的任务有不同的约束
+  # prompt_meta.json 的 task_type 字段决定使用哪组限制
+  task_type_overrides:
+    rename:                   # 重命名/接口改名：改很多文件但每个文件改动极小
+      max_files_changed: 30
+      max_insertions: 20
+      max_deletions: 20
+    refactor:                 # 重构：允许更多文件但总量有限
+      max_files_changed: 8
+      max_insertions: 200
+      max_deletions: 200
+
+# ---------------------------------------------------------------------------
+# 策略阶梯（卡住时自动升级）
+# ---------------------------------------------------------------------------
+strategy:
+  # 连续无改善 N 轮后升级策略级别
+  # Level 1→2 after 2 rounds, 2→3 after 4, 3→4 after 6
+  escalation: [2, 4, 6]
+
+# ---------------------------------------------------------------------------
+# 熔断器（安全逃生阀）
+# ---------------------------------------------------------------------------
+circuit_breaker:
+  max_consecutive_failures: 5     # 连续失败 5 次 → HALT
+  notify_after_failures: 3        # 连续失败 3 次 → NOTIFY
+  human_review_interval: 10       # 每 10 次合并后强制人类审查
+  max_cumulative_lines: 2000      # 累计变更超过 2000 行 → PAUSE
+  detect_oscillation: true        # 检测 PASS/FAIL 振荡模式

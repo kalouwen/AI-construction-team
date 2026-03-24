@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""
+health-check.py — 代码健康持续监控
+
+不改任何代码。只跑所有信号的采集器和判定器，输出健康报告。
+用于定时监控（cron）或手动检查。
+
+用法: python health-check.py <signals.yaml> [--output health-report.md]
+
+退出码:
+  0 = 全部健康
+  1 = 有退化（信号 FAIL）
+  2 = 环境问题（采集器或判定器无法运行）
+"""
+
+import json
+import os
+import subprocess
+import sys
+import yaml
+from datetime import datetime, timezone
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).parent
+
+
+def load_yaml(path):
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("用法: python health-check.py <signals.yaml> [--output report.md]")
+        sys.exit(1)
+
+    config_path = sys.argv[1]
+    output_path = None
+    if "--output" in sys.argv:
+        idx = sys.argv.index("--output")
+        if idx + 1 < len(sys.argv):
+            output_path = sys.argv[idx + 1]
+
+    config = load_yaml(config_path)
+    signals = [s for s in config.get("signals", []) if s.get("enabled", True)]
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    results = []
+    overall = "HEALTHY"
+    env_errors = []
+
+    print(f"{'=' * 60}")
+    print(f"  Health Check — {now}")
+    print(f"  Signals: {', '.join(s['name'] for s in signals)}")
+    print(f"{'=' * 60}")
+
+    for sig_cfg in signals:
+        name = sig_cfg["name"]
+        collector_path = str(SCRIPT_DIR / sig_cfg["collector"])
+        judge_path = str(SCRIPT_DIR / sig_cfg["judge"])
+        sig_config_path = str(SCRIPT_DIR / sig_cfg["config"])
+        baseline_path = sig_cfg["baseline"]
+
+        # 临时输出目录
+        tmp_dir = f".signals/_health_check/{name}"
+        os.makedirs(tmp_dir, exist_ok=True)
+
+        # 1. 采集
+        print(f"\n  [{name}] Collecting...")
+        try:
+            subprocess.run(
+                ["bash", collector_path, sig_config_path, tmp_dir],
+                check=True, timeout=120, capture_output=True,
+            )
+        except FileNotFoundError:
+            msg = f"Collector not found: {collector_path}"
+            print(f"    ENV ERROR: {msg}")
+            env_errors.append({"signal": name, "error": msg})
+            results.append({"signal": name, "verdict": "ENV_ERROR", "detail": msg})
+            continue
+        except subprocess.TimeoutExpired:
+            msg = "Collector timed out (120s)"
+            print(f"    ENV ERROR: {msg}")
+            env_errors.append({"signal": name, "error": msg})
+            results.append({"signal": name, "verdict": "ENV_ERROR", "detail": msg})
+            continue
+        except subprocess.CalledProcessError as e:
+            msg = f"Collector failed: {e.stderr.decode('utf-8', errors='replace')[:200] if e.stderr else str(e)}"
+            print(f"    ENV ERROR: {msg}")
+            env_errors.append({"signal": name, "error": msg})
+            results.append({"signal": name, "verdict": "ENV_ERROR", "detail": msg})
+            continue
+
+        # 2. 判定
+        print(f"  [{name}] Judging...")
+        result_file = os.path.join(tmp_dir, "result_1.json")
+        verdict_file = os.path.join(tmp_dir, "verdict.json")
+
+        if not os.path.exists(result_file):
+            msg = "Collector produced no result_1.json"
+            env_errors.append({"signal": name, "error": msg})
+            results.append({"signal": name, "verdict": "ENV_ERROR", "detail": msg})
+            continue
+
+        judge_r = subprocess.run(
+            [sys.executable, judge_path, sig_config_path, baseline_path, result_file, verdict_file],
+        )
+
+        verdict = "UNKNOWN"
+        detail = ""
+        if os.path.exists(verdict_file):
+            with open(verdict_file, encoding="utf-8") as f:
+                v = json.load(f)
+            verdict = v.get("verdict", "UNKNOWN")
+            detail = v.get("summary", "")
+
+        if verdict == "FAIL":
+            overall = "DEGRADED"
+        elif verdict == "ENV_ERROR":
+            overall = "ENV_ERROR"
+
+        print(f"    → {verdict}: {detail}")
+        results.append({"signal": name, "verdict": verdict, "detail": detail})
+
+    # 清理临时目录
+    import shutil
+    shutil.rmtree(".signals/_health_check", ignore_errors=True)
+
+    # 汇总
+    print(f"\n{'=' * 60}")
+    print(f"  Overall: {overall}")
+    print(f"{'=' * 60}")
+
+    # 生成报告
+    report_lines = [
+        f"# Health Report",
+        f"",
+        f"**Time**: {now}",
+        f"**Overall**: {overall}",
+        f"",
+        f"## Signal Results",
+        f"",
+        f"| Signal | Verdict | Detail |",
+        f"|--------|---------|--------|",
+    ]
+    for r in results:
+        report_lines.append(f"| {r['signal']} | {r['verdict']} | {r['detail']} |")
+
+    if env_errors:
+        report_lines.append("")
+        report_lines.append("## Environment Issues")
+        report_lines.append("")
+        for e in env_errors:
+            report_lines.append(f"- **{e['signal']}**: {e['error']}")
+
+    report_lines.append("")
+    report_lines.append("---")
+    report_lines.append(f"*Generated by health-check.py*")
+
+    report = "\n".join(report_lines)
+
+    if output_path:
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"\n  Report: {output_path}")
+
+    # 退出码
+    if env_errors:
+        sys.exit(2)
+    elif overall == "DEGRADED":
+        sys.exit(1)
+    else:
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

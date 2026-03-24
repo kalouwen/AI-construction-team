@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# pre-commit: file size check + test suite before every commit
+# Installed by AI for better — do not edit manually
+
+set -e
+
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+# ── 1. 文件大小检查（500 行上限）──────────────────────────────────────
+MAX_LINES=500
+# 排除已知的大文件（lockfile、自动生成代码等）
+EXCEPTIONS="package-lock.json|yarn.lock|pnpm-lock.yaml|*.lock|*.pb.go|*.generated.*|*.min.js|*.min.css"
+
+for file in $(git diff --cached --name-only --diff-filter=AM); do
+  # 跳过例外文件
+  basename_file=$(basename "$file")
+  if echo "$basename_file" | grep -qE "^($EXCEPTIONS)$" 2>/dev/null; then
+    continue
+  fi
+  # 跳过二进制文件
+  if ! file --mime "$file" 2>/dev/null | grep -q "text/"; then
+    continue
+  fi
+  if [ -f "$file" ]; then
+    lines=$(wc -l < "$file")
+    if [ "$lines" -gt "$MAX_LINES" ]; then
+      echo "❌  File too large: $file ($lines lines, max $MAX_LINES)"
+      echo "    Split into smaller modules with single responsibility."
+      exit 1
+    fi
+  fi
+done
+
+# ── 2. 测试（分级：commit 时跑 unit，push 时跑 e2e）─────────────────
+TEST_UNIT="__TEST_UNIT_CMD__"
+TEST_FULL="__TEST_CMD__"
+
+# 优先用 unit 测试（秒级），没有 unit 则降级到全量
+if [ -n "$TEST_UNIT" ] && [[ "$TEST_UNIT" != "#"* ]]; then
+  echo "→ Running unit tests (fast)..."
+  if ! eval "$TEST_UNIT"; then
+    echo ""
+    echo "❌  Unit tests failed. Commit blocked."
+    exit 1
+  fi
+elif [ -n "$TEST_FULL" ] && [[ "$TEST_FULL" != "#"* ]]; then
+  echo "→ Running tests..."
+  if ! eval "$TEST_FULL"; then
+    echo ""
+    echo "❌  Tests failed. Commit blocked."
+    exit 1
+  fi
+else
+  echo "⚠️  No test command configured. Skipping test gate."
+fi

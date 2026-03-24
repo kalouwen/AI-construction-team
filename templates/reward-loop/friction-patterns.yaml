@@ -1,0 +1,208 @@
+# friction-patterns.yaml — 已知构建摩擦模式注册表
+#
+# 自愈循环的知识库。记录项目中反复出现的构建/测试失败模式及其修复策略。
+# AI 循环遇到错误时先查此表，按策略修复，避免盲目重试。
+#
+# 部署时由 deploy.sh 根据项目技术栈填充。运行中可手动追加新模式。
+# autoloop SKILL 和 self-heal.py 都读此文件。
+
+version: 1
+
+# ═══════════════════════════════════════════════════════════════
+# 全局设置
+# ═══════════════════════════════════════════════════════════════
+settings:
+  max_fix_attempts_per_pattern: 3   # 同一模式最多修复几次，超过则 BLOCKED
+  fix_timeout_sec: 120              # 单次修复操作超时
+  cascade_check: true               # 【模拟问题 #1 修复】修复后必须验证所有构建目标
+
+# ═══════════════════════════════════════════════════════════════
+# 构建验证命令（修复后全部重跑，不只跑失败的那个）
+# 部署时根据项目技术栈填写，取消对应行的注释
+# ═══════════════════════════════════════════════════════════════
+verify_commands: []
+  # - name: go
+  #   cmd: "go build ./... && go test ./..."
+  # - name: csharp
+  #   cmd: "dotnet build --no-restore"
+  # - name: node_build
+  #   cmd: "npm run build"
+  # - name: node_test
+  #   cmd: "npm test"
+  # - name: python
+  #   cmd: "pytest --tb=short -q"
+  # - name: unity
+  #   cmd: "# Unity 通过 MCP batchmode 验证，见项目 CLAUDE.md"
+
+# ═══════════════════════════════════════════════════════════════
+# 错误分类说明
+# ═══════════════════════════════════════════════════════════════
+# code        = 修改源代码可修复（AI 自主处理）
+# config      = 修改配置/构建文件可修复（AI 自主处理）
+# environment = 需要人工干预：安装包、配置工具链（AI 必须放弃并报告）
+# auto        = 需要先检查再判断属于哪类（AI 按 fix_steps 做鉴别诊断）
+
+# ═══════════════════════════════════════════════════════════════
+# 通用模式（所有项目适用）
+# ═══════════════════════════════════════════════════════════════
+patterns:
+
+  # ─── 1. API 签名不匹配 ───
+  # 【模拟问题 #4 修复】comprehensive: true 要求搜全部调用点再修
+  - id: api-signature-mismatch
+    class: code
+    match_any:
+      - "too many arguments"
+      - "too few arguments"
+      - "not enough arguments"
+      - "CS1501.*no overload.*takes"
+      - "CS7036.*required formal parameter"
+      - "TypeError.*arguments"
+      - "TypeError.*expected.*got"
+      - "expects \\d+ arguments.*got \\d+"
+    diagnosis: "函数签名已变更，调用方未同步更新"
+    fix_steps:
+      - "找到函数的最新签名定义"
+      - "用 grep/ripgrep 搜索项目中【所有】调用点（不只是第一个报错的）"
+      - "列出全部调用点后，逐个更新"
+      - "再次编译/测试，确认无遗漏"
+    comprehensive: true   # AI 必须修全部出现位置
+
+  # ─── 2. 缺少导入 vs 依赖未安装 ───
+  # 【模拟问题 #2 修复】class: auto + requires_check 强制鉴别诊断
+  - id: missing-import-or-dependency
+    class: auto
+    match_any:
+      - "cannot find module"
+      - "ModuleNotFoundError"
+      - "ImportError.*No module named"
+      - "CS0246.*type or namespace.*could not be found"
+      - "CS0234.*does not exist in namespace"
+      - "Cannot find name"
+      - "Module not found.*Can't resolve"
+    diagnosis: "缺少导入语句，或依赖包未安装——二者错误信息相似但修法不同"
+    fix_steps:
+      - "【鉴别诊断】在项目源码中搜索缺失的符号/命名空间"
+      - "如果项目源码中存在 → class=code，添加 import/using 语句"
+      - "如果已安装的包中存在 → class=code，添加 import 语句"
+      - "如果都不存在 → class=environment，这是未安装的依赖包"
+      - "environment 类直接写诊断报告，标记 BLOCKED，不再重试"
+    requires_check: true  # 修之前必须先搜索确认是哪种情况
+
+  # ─── 3. 循环依赖 ───
+  # 【模拟问题 #5 修复】cycle_indicator_for 检测修复循环
+  - id: circular-dependency
+    class: code
+    match_any:
+      - "circular import"
+      - "circular dependency"
+      - "import cycle"
+      - "cycle not allowed"
+      - "Dependency cycle detected"
+    diagnosis: "模块之间存在循环依赖"
+    fix_steps:
+      - "画出依赖链（A→B→C→A），找到最小环"
+      - "提取共享类型到独立模块，打破循环"
+      - "或对非关键依赖使用延迟导入/依赖注入"
+    cycle_indicator_for: ["missing-import-or-dependency"]
+    # 如果修 missing-import 后出现 circular-dependency → 进入循环，升级
+
+  # ─── 4. 类型不匹配 ───
+  - id: type-mismatch
+    class: code
+    match_any:
+      - "type.*is not assignable"
+      - "cannot convert"
+      - "CS0029.*Cannot implicitly convert"
+      - "incompatible types"
+      - "TS2345.*not assignable"
+      - "type mismatch"
+    diagnosis: "类型不匹配，赋值或传参类型错误"
+    fix_steps:
+      - "找到类型的权威定义（谁定义了这个类型？）"
+      - "判断：是调用方该改还是定义方该改"
+      - "更新类型，确保上下游一致"
+      - "检查相关的类型转换/断言是否需要同步更新"
+
+  # ─── 5. 环境/工具链问题 ───
+  # 【模拟问题 #6 修复】class: environment + escalate: true 直接放弃
+  - id: tool-not-found
+    class: environment
+    match_any:
+      - "command not found"
+      - "is not recognized as"
+      - "'.*' is not recognized"
+      - "No such file or directory.*/bin/"
+      - "not found in PATH"
+      - "ENOENT.*spawn"
+    diagnosis: "构建工具未安装或不在 PATH 中——这不是代码问题"
+    fix_steps:
+      - "这是环境问题，AI 无法自动修复"
+      - "写入诊断报告：需要安装什么工具、推荐的安装方式"
+      - "标记 BLOCKED，不浪费重试次数"
+    escalate: true
+
+  # ─── 6. 权限/锁文件问题 ───
+  - id: permission-or-lock
+    class: environment
+    match_any:
+      - "EACCES.*permission denied"
+      - "Permission denied"
+      - "EPERM.*operation not permitted"
+      - "Could not create lock file"
+      - "resource busy"
+    diagnosis: "文件权限问题或资源被锁定——非代码问题"
+    fix_steps:
+      - "检查哪个进程持有锁（非杀进程，仅诊断）"
+      - "写入诊断报告"
+      - "标记 BLOCKED"
+    escalate: true
+
+# ═══════════════════════════════════════════════════════════════
+# 多语言/代码生成项目专用模式
+# 部署时根据项目情况取消注释
+# ═══════════════════════════════════════════════════════════════
+# codegen_patterns:
+#
+#   # ─── Proto 方向错误 ───
+#   - id: proto-direction-mismatch
+#     class: code
+#     match_any:
+#       - "undefined.*Proto"
+#       - "cannot find type.*_pb"
+#       - "CS0246.*Proto"
+#       - "undefined.*_pb2"
+#     diagnosis: "Proto codegen 生成了错误语言方向的文件"
+#     fix_steps:
+#       - "检查 .proto 文件的语言选项（option go_package / option csharp_namespace）"
+#       - "确认 protoc 命令的 --xxx_out 参数指向正确语言"
+#       - "重新运行 codegen——必须同时为【所有】目标语言生成"
+#     cascade_targets: ["go", "csharp"]
+#
+#   # ─── Codegen 覆盖手写文件 ───
+#   - id: codegen-overwrite-handwritten
+#     class: code
+#     match_any:
+#       - "conflict.*generated"
+#       - "overwritten.*codegen"
+#     diagnosis: "代码生成器覆盖了手写的兼容层文件"
+#     fix_steps:
+#       - "git checkout HEAD -- <被覆盖的手写文件>"
+#       - "将手写文件移到 codegen 不会碰的目录"
+#       - "更新 codegen 配置的排除列表"
+#       - "验证手写文件和生成文件不再冲突"
+#
+#   # ─── 客户端/服务端枚举不同步 ───
+#   - id: enum-client-server-mismatch
+#     class: code
+#     match_any:
+#       - "invalid.*enum.*value"
+#       - "CS0117.*does not contain"
+#       - "unknown enum value"
+#       - "enum.*not defined"
+#     diagnosis: "客户端和服务端的枚举值不同步"
+#     fix_steps:
+#       - "找到枚举的权威定义（通常在 proto/schema 文件）"
+#       - "diff 对比客户端和服务端的枚举值"
+#       - "以权威定义为准，同步更新两端"
+#     cascade_targets: ["go", "csharp"]

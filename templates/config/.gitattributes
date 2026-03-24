@@ -1,0 +1,22 @@
+# Normalize line endings
+* text=auto
+
+# Force LF for scripts — prevents Windows line endings from breaking sh/bash
+*.sh text eol=lf
+*.bash text eol=lf
+Makefile text eol=lf
+
+# Force LF for CI/config files
+*.yml text eol=lf
+*.yaml text eol=lf
+.editorconfig text eol=lf
+.nvmrc text eol=lf
+
+# Binary — never diff
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary

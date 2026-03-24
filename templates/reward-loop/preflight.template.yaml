@@ -1,0 +1,106 @@
+# preflight.template.yaml — 会话预检配置
+#
+# 定义在实现开始前需要验证的一致性检查。
+# preflight.py 读此文件，跑检查，生成报告。
+#
+# 部署时根据项目技术栈填写。未启用的检查会被跳过。
+
+version: 1
+
+# ═══════════════════════════════════════════════════════════════
+# 检查项配置
+# ═══════════════════════════════════════════════════════════════
+checks:
+
+  # ─── 1. Proto/Codegen 一致性 ───
+  # 适用于：使用 proto/flatbuffers/graphql codegen 的项目
+  proto_consistency:
+    enabled: false
+    proto_dirs:
+      - "proto/"
+    # 每种目标语言的生成输出目录
+    targets:
+      go: "server/gen/"
+      csharp: "client/Assets/Scripts/Generated/"
+    # 用什么命令重新生成（preflight 发现不一致时可自动修复）
+    codegen_cmd: "protoc --go_out=server/gen --csharp_out=client/Assets/Scripts/Generated proto/*.proto"
+    # 手写文件标记（包含此字符串的文件不参与一致性检查）
+    hand_written_marker: "// HAND-WRITTEN"
+
+  # ─── 2. 枚举同步 ───
+  # 适用于：客户端-服务端分离的项目（需要两端枚举值一致）
+  enum_sync:
+    enabled: false
+    # 枚举的权威来源（proto 文件中的 enum 定义）
+    authority: "proto/"
+    # 各端的枚举文件搜索模式
+    endpoints:
+      - name: "go-server"
+        glob: "server/**/*_enums.go"
+        # Go 枚举格式示例: const VehicleType_SEDAN = 1
+        pattern: "const\\s+(\\w+)\\s*=\\s*(\\d+)"
+      - name: "csharp-client"
+        glob: "client/**/*Enum.cs"
+        # C# 枚举格式示例: Sedan = 1,
+        pattern: "(\\w+)\\s*=\\s*(\\d+)"
+    # 允许客户端是服务端的子集（客户端不需要所有值）
+    allow_subset: true
+
+  # ─── 3. 受保护目录 ───
+  # 适用于：所有项目（通用检查）
+  protected_dirs:
+    enabled: true
+    # 自动读取来源（不需要重复声明）:
+    #   - guard-patterns.conf [protected-paths]
+    #   - .gitmodules（自动检测子模块）
+    # 额外的受保护路径（项目特定）
+    additional:
+      # - "Assets/Scripts/3rd/"
+      # - "Assets/Plugins/"
+      # - "vendor/"
+
+  # ─── 4. 已有实现审计 ───
+  # 适用于：所有项目（通用检查）
+  existing_code_audit:
+    enabled: true
+    # preflight.py 自动把任务关键词转换为 camelCase/PascalCase/snake_case/kebab-case 搜索
+    # 无需配置命名变体
+    # 空壳/stub 检测关键词
+    stub_markers:
+      - "TODO"
+      - "FIXME"
+      - "NotImplemented"
+      - "throw new NotImplementedException"
+      - "pass  # TODO"
+      - "panic(\"not implemented\")"
+
+  # ─── 5. 构建基线 ───
+  # 适用于：所有项目（通用检查）
+  build_baseline:
+    enabled: true
+    # 编译命令（列表，全部必须通过）
+    compile_commands: []
+      # - "go build ./..."
+      # - "dotnet build --no-restore"
+    # 测试命令
+    test_cmd: ""
+      # "go test ./..."
+      # "npm test"
+      # "pytest --tb=short -q"
+    # 已知 flaky 测试（预检会标记但不算失败）
+    known_flaky: []
+      # - "TestWeatherSystem_RandomSeed"
+      # - "test_network_timeout"
+    # 基线输出路径
+    output: "docs/session-baseline.md"
+
+# ═══════════════════════════════════════════════════════════════
+# 全局配置
+# ═══════════════════════════════════════════════════════════════
+settings:
+  # 预检发现可自动修复的问题时，是否自动修复
+  auto_fix: true
+  # 自动修复后重跑预检（最多几次）
+  max_fix_loops: 3
+  # 单个检查的超时（秒）
+  check_timeout_sec: 300

@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "absolute": {
+    "commit": "",
+    "created_at": "",
+    "description": "填写：基于哪个版本/里程碑录制的绝对基准",
+    "metrics": {}
+  },
+  "relative": {
+    "commit": "",
+    "updated_at": "",
+    "metrics": {}
+  }
+}

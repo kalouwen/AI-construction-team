@@ -1,0 +1,62 @@
+version: "1.0"
+
+metrics:
+  fps_avg:
+    unit: fps
+    lower_is_better: false
+    tier: hard
+    threshold_relative: 10
+    threshold_absolute: 20
+
+  memory_peak_mb:
+    unit: MB
+    lower_is_better: true
+    tier: hard
+    threshold_relative: 10
+    threshold_absolute: 20
+
+  load_time_sec:
+    unit: seconds
+    lower_is_better: true
+    tier: soft
+    threshold_relative: 20
+    threshold_absolute: 30
+
+  dom_nodes:
+    unit: count
+    lower_is_better: true
+    tier: info
+    threshold_relative: 10
+    threshold_absolute: 20
+
+collector:
+  runs: 3
+  warmup_sec: 2
+  measure_duration_sec: 5
+  timeout_sec: 60
+  web:
+    url: "http://localhost:8080"
+    startup_cmd: ""
+    startup_wait_sec: 2
+
+judge:
+  max_soft_failures: 1
+  enforce_same_machine: false
+
+loop:
+  max_rounds: 5
+  max_duration_min: 30
+  stop_after_no_improve: 3
+  convergence_threshold: 1.0
+  strategy_switch_after: 2
+
+history:
+  max_recent_rounds: 10
+  older_rounds: summary_only
+
+paths:
+  results_dir: ".perf/results"
+  baseline_file: ".perf/baseline.json"
+  history_file: ".perf/history.json"
+  trajectory_file: ".perf/trajectory.jsonl"
+  artifacts_dir: ".perf/artifacts"

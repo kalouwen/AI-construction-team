@@ -1,0 +1,96 @@
+# =============================================================================
+# 性能奖励信号系统配置
+# 每个接入项目复制此文件，按需修改
+# =============================================================================
+
+version: "1.0"
+
+# ---------------------------------------------------------------------------
+# 指标定义
+# tier: hard = 不允许劣化 | soft = 允许小幅波动 | info = 仅记录不判定
+# ---------------------------------------------------------------------------
+metrics:
+  memory_peak_mb:
+    unit: MB
+    lower_is_better: true
+    tier: hard
+    threshold_relative: 5      # 相对上次提交，劣化超过此百分比 → FAIL
+    threshold_absolute: 10     # 相对绝对基准，劣化超过此百分比 → FAIL
+
+  gc_alloc_per_frame_kb:
+    unit: KB
+    lower_is_better: true
+    tier: hard
+    threshold_relative: 5
+    threshold_absolute: 10
+
+  fps_avg:
+    unit: fps
+    lower_is_better: false
+    tier: hard
+    threshold_relative: 5
+    threshold_absolute: 10
+
+  build_size_mb:
+    unit: MB
+    lower_is_better: true
+    tier: soft
+    threshold_relative: 8
+    threshold_absolute: 15
+
+  load_time_sec:
+    unit: seconds
+    lower_is_better: true
+    tier: soft
+    threshold_relative: 10
+    threshold_absolute: 20
+
+# ---------------------------------------------------------------------------
+# 采集配置
+# ---------------------------------------------------------------------------
+collector:
+  runs: 3                      # 每次测量跑几次（取中位数降噪）
+  warmup_frames: 120           # 预热帧数（跳过启动抖动）
+  measure_frames: 600          # 实际测量帧数
+  benchmark_scene: ""          # 基准场景路径（项目填写）
+  timeout_sec: 300             # 单次运行超时
+
+# ---------------------------------------------------------------------------
+# 判定规则
+# ---------------------------------------------------------------------------
+judge:
+  # hard 指标：任一 FAIL 则整体 FAIL
+  # soft 指标：超过 max_soft_failures 个 FAIL 则整体 FAIL
+  max_soft_failures: 1
+
+  # 环境一致性检查：baseline 和当前测量必须在同一 machine_id
+  enforce_same_machine: true
+
+# ---------------------------------------------------------------------------
+# 循环控制
+# ---------------------------------------------------------------------------
+loop:
+  max_rounds: 20               # 最大循环轮次
+  max_duration_min: 240        # 最大总时长（分钟）
+  stop_after_no_improve: 5     # 连续 N 轮无改善则停止
+  convergence_threshold: 1.0   # 改善率低于此百分比视为无改善
+
+  # 策略切换：连续无改善达到此轮次时，提示 AI 切换优化策略
+  strategy_switch_after: 3
+
+# ---------------------------------------------------------------------------
+# 历史管理
+# ---------------------------------------------------------------------------
+history:
+  max_recent_rounds: 10        # 历史摘要保留最近 N 轮细节
+  older_rounds: "summary_only" # 更早的轮次只保留统计摘要
+
+# ---------------------------------------------------------------------------
+# 输出路径（相对项目根目录）
+# ---------------------------------------------------------------------------
+paths:
+  results_dir: ".perf/results"
+  baseline_file: ".perf/baseline.json"
+  history_file: ".perf/history.json"
+  trajectory_file: ".perf/trajectory.jsonl"
+  artifacts_dir: ".perf/artifacts"

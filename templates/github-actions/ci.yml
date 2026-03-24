@@ -1,0 +1,142 @@
+# CI: Lint → Test Matrix + PR Size Check + Secret Scan
+# Fail-fast: lint 先跑，通过后才启动矩阵（节省 runner 分钟数）
+# Triggers on every PR and push to main
+# Installed by AI for better
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true   # new push cancels stale run, saves minutes
+
+jobs:
+  # ── 0. 变更范围检测 ───────────────────────────────────────────────────
+  # 只改文档/配置时跳过测试矩阵，省 runner 分钟数
+  check-scope:
+    name: Detect change scope
+    runs-on: ubuntu-latest
+    outputs:
+      code_changed: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29  # v4.1.6
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36  # v3.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'lib/**'
+              - 'app/**'
+              - 'tests/**'
+              - 'test/**'
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.py'
+              - '**/*.go'
+              - '**/*.cs'
+              - '**/*.rs'
+              - 'package.json'
+              - 'requirements.txt'
+              - 'go.mod'
+              - 'Cargo.toml'
+
+  # ── 1. Lint（便宜，先跑）──────────────────────────────────────────────
+  # 格式错误 10 秒出结果，不启动后面贵的矩阵
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    # __LINT_CMD__ 为空时整个 job 跳过，不影响后续 test job
+    if: "__LINT_CMD__" != ""
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29  # v4.1.6
+      - name: Setup Node.js
+        uses: actions/setup-node@1a4442cacd436585916779262731d1f68e8812b5  # v3.8.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+      - run: npm ci
+      - name: Lint
+        run: __LINT_CMD__
+
+  # ── 2. PR 大小检查（和 lint 并行，不阻塞 test 启动）──────────────────
+  size-check:
+    name: PR Size Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29  # v4.1.6
+        with:
+          fetch-depth: 0
+      - name: Check PR size
+        run: |
+          # 排除自动生成文件（lockfile、生成代码等）
+          LINES=$(git diff --stat "origin/${{ github.base_ref }}...HEAD" \
+            -- ':!package-lock.json' ':!*.lock' ':!**/generated/**' ':!*.pb.go' \
+            | tail -1 | grep -oP '\d+ insertion' | grep -oP '\d+' || echo 0)
+          echo "Lines changed (excluding generated files): $LINES"
+          if [ "$LINES" -gt 500 ]; then
+            echo "::error::PR too large ($LINES lines). Max: 500. Please split into smaller PRs."
+            exit 1
+          elif [ "$LINES" -gt 200 ]; then
+            echo "::warning::PR is large ($LINES lines). Consider splitting (recommended max: 200)."
+          fi
+
+  # ── 3. Test Matrix（贵，等 lint 通过 + 确认有代码变更才启动）────────
+  test:
+    name: Test (${{ matrix.os }} / Node ${{ matrix.version }})
+    needs: [lint, check-scope]
+    if: |
+      always() &&
+      needs.check-scope.outputs.code_changed == 'true' &&
+      (needs.lint.result == 'success' || needs.lint.result == 'skipped')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        version: ["20", "22"]   # adjust to your supported versions
+
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29  # v4.1.6
+
+      # ----- Node.js (replace this block for other languages) -----
+      - name: Setup Node.js ${{ matrix.version }}
+        uses: actions/setup-node@1a4442cacd436585916779262731d1f68e8812b5  # v3.8.0
+        with:
+          node-version: ${{ matrix.version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: __TEST_CMD__
+
+      # Coverage upload (optional — enables ratchet comparisons)
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.version == '20'
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808  # v4.3.3
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  # ── 4. Secret Scan（和 test 并行，不阻塞）────────────────────────────
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29  # v4.1.6
+        with:
+          fetch-depth: 0   # full history for accurate scanning
+      - uses: gitleaks/gitleaks-action@44c470e3b73799e04b45e5b7c0f8c84e09f52a72  # v2.3.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,172 @@
+# project-manifest.template.yaml — 多仓库项目定义
+#
+# 解决的核心问题：模板假设"一个项目=一个仓库=一套构建命令"，
+# 但现实项目常常是 N 个仓库 × M 种语言 × K 种验证方式。
+#
+# 部署时根据项目实际结构填写。单仓库项目不需要此文件（自动降级）。
+
+version: 1
+name: "GTA Freelife"
+
+# ═══════════════════════════════════════════════════════════════
+# 仓库定义
+# 每个仓库独立管理 git 操作和构建验证
+# ═══════════════════════════════════════════════════════════════
+repos:
+
+  client:
+    # 【G1 修复】git_root 和 work_dir 分开
+    git_root: "C:/GTAaitest/freelifeclient"       # git 操作在这里
+    work_dir: "C:/GTAaitest/freelifeclient"       # 构建命令在这里（客户端一致）
+    # commit_scope: 限定 AI 可以改动的目录范围（相对于 git_root）
+    commit_scope:
+      - "Assets/Scripts/Gameplay/Modules/ClothingSystem/"
+      - "Assets/Scripts/Gameplay/Modules/S1Town/Managers/Clothing/"
+      - "Assets/Scripts/Gameplay/Modules/UI/Pages/"
+    language: unity-csharp
+    git:
+      type: worktree          # worktree | branch | clone
+      base_branch: "ai-friendly/cleanup-test"
+    verify:
+      compile:
+        # 【G8 修复】MCP 失败默认 block，不是 skip
+        method: mcp
+        mcp_tool: "mcp__coplay-mcp__check_compile_errors"
+        on_mcp_fail: block    # block | skip_with_warning | use_fallback
+        fallback_cmd: null    # Unity batchmode 命令（如果可用）
+      test:
+        method: mcp
+        mcp_tool: null        # Unity EditMode 测试（如果配置了）
+        on_mcp_fail: skip_with_warning
+    protected:
+      - "Assets/Scripts/3rd/"
+      - "Assets/Plugins/"
+      - "Library/"
+      - "Assets/Scripts/Gameplay/Modules/UI/Managers/Role/Tools/"  # 废弃的 DressUpTool
+
+  server:
+    # 【G1 修复】git 操作在 P1GoServer，构建命令在 P1GoServer/common
+    git_root: "C:/GTA/P1GoServer"
+    work_dir: "C:/GTA/P1GoServer/common"          # go.mod 在这里
+    commit_scope:
+      - "common/clothing/"                          # 相对于 git_root
+    language: go
+    git:
+      type: branch
+      base_branch: "plan/plan_b_haiyang"
+    verify:
+      compile:
+        method: shell
+        shell_cmd: "go build ./..."                 # 从 work_dir 执行
+      test:
+        method: shell
+        shell_cmd: "go test ./clothing/..."         # 从 work_dir 执行
+    protected:
+      - "vendor/"
+
+  proto:
+    git_root: "C:/GTA/old_proto"
+    work_dir: "C:/GTA/old_proto"
+    commit_scope:
+      - "scene/"
+      - "base/"
+    language: custom-proto
+    git:
+      type: branch
+      base_branch: "main"
+    verify:
+      compile: null           # proto 本身不编译，通过 client+server 构建间接验证
+    # 【G2 修复】submodule 关系声明
+    submodule_in:
+      - repo: server
+        submodule_path: "resources/proto"
+        sync_cmd: "git submodule update --remote resources/proto"
+    protected: []
+
+# ═══════════════════════════════════════════════════════════════
+# 代码生成级联
+# proto 变更后必须重新生成两端代码
+# ═══════════════════════════════════════════════════════════════
+codegen:
+  # 【G9 修复】显式声明 codegen 触发条件和执行步骤
+  trigger_files:
+    - repo: proto
+      patterns: ["scene/scene.proto", "base/base.proto", "base/db_server.proto"]
+  steps:
+    # 每一步都必须执行，任何一步失败则整个 codegen 失败
+    - name: "Sync submodule"
+      repo: server
+      cmd: "git submodule update --remote resources/proto"
+    - name: "Generate Go"
+      repo: server
+      cwd: "C:/GTA/P1GoServer"     # 从 git_root 执行，不是 work_dir
+      cmd: "go generate ./..."      # 或项目实际使用的命令
+    - name: "Generate C#"
+      repo: client
+      cwd: "C:/GTAaitest/freelifeclient"
+      cmd: null                     # 如果 C# 生成也需要特殊命令，填这里
+      # 注意：GTA 用 generate.exe（配表工具），不是 protoc
+
+# ═══════════════════════════════════════════════════════════════
+# 跨仓库一致性检查
+# preflight 和 guardrail 都会读这个
+# ═══════════════════════════════════════════════════════════════
+cross_repo:
+  enum_sync:
+    - name: "ClothingSlotType 同步"
+      source:
+        repo: server
+        file: "clothing/slot.go"   # 相对于 work_dir
+        pattern: '(\w+)\s+SlotType\s*=\s*(\d+)'
+      target:
+        repo: client
+        file: "Assets/Scripts/Gameplay/Modules/ClothingSystem/Core/ClothingSlotType.cs"
+        pattern: '(\w+)\s*=\s*(\d+)'
+      allow_subset: true
+
+    - name: "ClothingFlags 同步"
+      source:
+        repo: server
+        file: "clothing/flags.go"
+        pattern: 'Flag(\w+)\s+.*=\s*1\s*<<\s*(\d+)'
+      target:
+        repo: client
+        file: "Assets/Scripts/Gameplay/Modules/ClothingSystem/Core/ClothingFlags.cs"
+        pattern: '(\w+)\s*=\s*1\s*<<\s*(\d+)'
+
+# ═══════════════════════════════════════════════════════════════
+# MCP 配置
+# ═══════════════════════════════════════════════════════════════
+mcp:
+  # 健康检查（driver.py 启动时执行一次，每 5 轮重检）
+  health_check_cmd: 'claude -p "Call mcp__coplay-mcp__get_unity_editor_state and respond ONLY with HEALTHY or UNHEALTHY" --max-turns 1'
+  recheck_every_n_rounds: 5
+  retry_count: 3
+  retry_delay_sec: 5
+  # MCP 不可用时的全局策略（可被 per-repo 覆盖）
+  global_on_fail: block         # block | skip_with_warning
+
+# ═══════════════════════════════════════════════════════════════
+# AI Agent 提示注入
+# 以下内容会自动注入到 prompt.py 生成的任务提示中
+# ═══════════════════════════════════════════════════════════════
+agent_context:
+  repo_map: |
+    This project spans multiple repositories:
+    - CLIENT (C#/Unity): {client.git_root}
+      You may modify: {client.commit_scope}
+    - SERVER (Go): {server.git_root}
+      Build from: {server.work_dir}
+      You may modify: {server.commit_scope}
+    - PROTO: {proto.git_root} (READ-ONLY unless task specifically requires proto changes)
+
+    After editing files, commit to the CORRECT repo:
+      If file is under {client.git_root} → cd {client.git_root} && git add ... && git commit
+      If file is under {server.git_root} → cd {server.git_root} && git add ... && git commit
+
+  verify_instructions: |
+    After each change:
+    1. Go server: cd {server.work_dir} && go test ./clothing/...
+    2. C# client: Use mcp__coplay-mcp__check_compile_errors (if MCP available)
+       If MCP unavailable: STOP and document what could not be verified.
+    3. If proto changed: run codegen cascade (see codegen section)

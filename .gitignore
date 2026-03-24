@@ -1,0 +1,32 @@
+# System
+*.stackdump
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sensitive
+.env
+.env.*
+credentials.json
+*secret*
+
+# Claude Code local settings (project-specific, not shared)
+.claude/settings.local.json
+
+# Runtime / generated
+.claude/sessions/
+.playwright-mcp/
+__pycache__/
+*.pyc
+*.pyo
+.signals/
+
+# Temp files
+pdf-*.png
+gdc_index.json

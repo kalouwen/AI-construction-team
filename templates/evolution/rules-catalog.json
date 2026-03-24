@@ -1,0 +1,151 @@
+{
+  "_comment": "AI for better 规则目录 — 每条规则的注册表，供 evolution-review 评估有效性",
+  "_status_values": "unknown | validated | ineffective | already-knows",
+  "_updated": "deploy 时自动复制，evolution-review 时更新 status 和 metrics",
+  "rules": [
+    {
+      "id": "HOOK-01",
+      "name": "敏感文件检测",
+      "source": "pre-bash-guard.sh",
+      "category": "hook",
+      "description": "git add 时检测 .env / credentials / .pem 等敏感文件",
+      "related_hook_event": "block:sensitive_file",
+      "related_signal": null,
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "HOOK-02",
+      "name": "密钥泄露扫描",
+      "source": "pre-bash-guard.sh",
+      "category": "hook",
+      "description": "git commit 时扫描 staged 内容中的 API key / private key / password",
+      "related_hook_event": "block:secret",
+      "related_signal": null,
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "HOOK-03",
+      "name": "commit 格式检查",
+      "source": "pre-bash-guard.sh",
+      "category": "hook",
+      "description": "commit message 必须符合 conventional commits 格式",
+      "related_hook_event": "block:commit_format",
+      "related_signal": null,
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "HOOK-04",
+      "name": "push 门禁",
+      "source": "pre-bash-guard.sh",
+      "category": "hook",
+      "description": "push 前必须通过 /review-pr 审查",
+      "related_hook_event": "block:push_gate",
+      "related_signal": null,
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "HOOK-05",
+      "name": "危险命令拦截",
+      "source": "pre-bash-guard.sh",
+      "category": "hook",
+      "description": "拦截 rm -rf / mkfs / dd 等高危命令",
+      "related_hook_event": "block:dangerous",
+      "related_signal": null,
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "HOOK-06",
+      "name": "保护路径守卫",
+      "source": "pre-edit-guard.sh",
+      "category": "hook",
+      "description": "阻止修改 node_modules / .git / vendor 等受保护路径",
+      "related_hook_event": "block:protected_path",
+      "related_signal": null,
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "HOOK-07",
+      "name": "调试语句检测",
+      "source": "post-edit-verify.sh",
+      "category": "hook",
+      "description": "编辑后检测新增的 console.log / Debug.Log / TODO",
+      "related_hook_event": "warn:debug_or_todo",
+      "related_signal": null,
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "HOOK-08",
+      "name": "偷懒检测",
+      "source": "anti-rationalization.sh",
+      "category": "hook",
+      "description": "检测 AI 回复中的推脱/未完成模式",
+      "related_hook_event": "warn:laziness_detected",
+      "related_signal": null,
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "RULE-01",
+      "name": "意图分解",
+      "source": "CLAUDE.md",
+      "category": "behavior",
+      "description": "收到需求先确认目标、列路径、检查假设，不直接动手",
+      "related_hook_event": null,
+      "related_signal": "consulted_user",
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "RULE-02",
+      "name": "路径穷举",
+      "source": "CLAUDE.md",
+      "category": "behavior",
+      "description": "列出 2-3 条达成目标的路径，标注代价，让用户选",
+      "related_hook_event": null,
+      "related_signal": "multi_path",
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "RULE-03",
+      "name": "不确定性量化",
+      "source": "CLAUDE.md",
+      "category": "behavior",
+      "description": "禁止说可能/大概/应该没问题，替换为依据+信心等级",
+      "related_hook_event": null,
+      "related_signal": "honest_uncertainty",
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    },
+    {
+      "id": "RULE-04",
+      "name": "先说再做",
+      "source": "CLAUDE.md",
+      "category": "behavior",
+      "description": "修改代码前先描述改什么、为什么改，等确认后执行",
+      "related_hook_event": null,
+      "related_signal": "consulted_user",
+      "status": "unknown",
+      "trigger_count": 0,
+      "last_triggered": null
+    }
+  ]
+}

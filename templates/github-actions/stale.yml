@@ -1,0 +1,32 @@
+# Stale: auto-close inactive PRs and Issues
+# Runs weekly — keeps repo healthy without manual pruning
+# Installed by AI for better
+
+name: Stale
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"   # every Monday 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@28ca1036281a5e5922ead5184a1bbf96e5fc984e  # v9.0.0
+        with:
+          stale-issue-message: >
+            This issue has been inactive for 30 days. It will be closed in 7 days
+            unless there is further activity.
+          stale-pr-message: >
+            This PR has been inactive for 30 days. It will be closed in 7 days
+            unless there is further activity. If it is still relevant, please rebase
+            and leave a comment.
+          close-issue-message: "Closed due to inactivity. Reopen if still relevant."
+          close-pr-message: "Closed due to inactivity. Reopen if still relevant."
+          days-before-stale: 30
+          days-before-close: 7
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: pinned,security
+          exempt-pr-labels: pinned,security

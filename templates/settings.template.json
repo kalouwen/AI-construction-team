@@ -1,0 +1,160 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/session-start.sh",
+            "timeout": 10,
+            "statusMessage": "加载项目上下文..."
+          },
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/detect-gaps.sh",
+            "timeout": 10,
+            "statusMessage": "知识缺口检测..."
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/log-agent.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/pre-bash-guard.sh",
+            "timeout": 30,
+            "statusMessage": "安全检查..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/pre-edit-guard.sh",
+            "timeout": 10,
+            "statusMessage": "路径守卫..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/post-edit-verify.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/post-codegen-verify.sh",
+            "timeout": 10,
+            "statusMessage": "Codegen 守卫..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/stop-format.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/anti-rationalization.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/instinct-extract.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/session-save.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/evolution-score.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOOKS_DIR__/pre-compact-inject.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf *)",
+      "Bash(mkfs *)",
+      "Bash(dd if=*)",
+      "Bash(format *:*)",
+      "Bash(curl * | bash)",
+      "Bash(curl * | sh)",
+      "Bash(wget * | bash)",
+      "Bash(wget * | sh)",
+      "Bash(powershell *-enc*)",
+      "Bash(powershell *-Enc*)",
+      "Bash(chmod -R 777 /)",
+      "Bash(git push --force origin main*)",
+      "Bash(git push --force origin master*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.kube/**)",
+      "Read(~/.gnupg/**)",
+      "Read(**/.env)",
+      "Read(**/.env.local)",
+      "Read(**/.env.production)",
+      "Read(**/credentials.json)",
+      "Read(**/*secret*)",
+      "Bash(cat ~/.ssh/*)",
+      "Bash(cat ~/.aws/*)",
+      "Bash(cat ~/.kube/*)",
+      "Bash(cat */.env*)"
+    ]
+  }
+}
